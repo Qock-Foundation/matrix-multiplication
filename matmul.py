@@ -101,7 +101,7 @@ k = int(sys.argv[2])
 tol = 1e-4
 for t in range(1, 101):
     model = MatmulModel(n, k).to(device)
-    optimizer = torch.optim.ASGD(model.parameters(), lr=1e-4)
+    optimizer = torch.optim.ASGD(model.parameters(), lr=1e-3)
     train_loader = DataLoader(TensorDataset(X_train, Y_train), batch_size=128, shuffle=True)
     test_loader = DataLoader(TensorDataset(X_test, Y_test), batch_size=128, shuffle=False)
     train_losses, test_losses = train_and_test(model, optimizer, nn.MSELoss(), train_loader, test_loader,
