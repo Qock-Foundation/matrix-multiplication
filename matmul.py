@@ -9,25 +9,29 @@ from sklearn.model_selection import train_test_split
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
-def generate_matrices(n, n_samples):
-    a = torch.normal(mean=0., std=5., size=(n_samples, n, n))
-    b = torch.normal(mean=0., std=5., size=(n_samples, n, n))
-    y = a @ b
-    a = a.reshape((n_samples, -1))
-    b = b.reshape((n_samples, -1))
-    x = torch.cat((a, b), dim=1)
-    return x, y
+def gen_samples(n, m, p, n_samples):
+    A = torch.normal(mean=0., std=5., size=(n_samples, n, m))
+    B = torch.normal(mean=0., std=5., size=(n_samples, m, p))
+    Y = A @ B
+    A = A.reshape((n_samples, -1))
+    B = B.reshape((n_samples, -1))
+    X = torch.cat((A, B), dim=1)
+    return X, Y
 
 
 class MatmulModel(nn.Module):
-    def __init__(self, n, k):
+    def __init__(self, n, m, p, k):
         super().__init__()
-        self.layer1 = nn.Linear(2 * n ** 2, 2 * k, bias=False)
-        self.layer3 = nn.Linear(k, n ** 2, bias=False)
+        self.n = n
+        self.m = m
+        self.p = p
+        self.k = k
+        self.layer1 = nn.Linear(n * m + m * p, 2 * k, bias=False)
+        self.layer3 = nn.Linear(k, n * p, bias=False)
 
     def forward(self, x):
         x = self.layer1(x)
-        x = x[:, :k] * x[:, k:]
+        x = x[:, :self.k] * x[:, self.k:]
         x = self.layer3(x)
         return x
 
@@ -74,34 +78,39 @@ def plot_losses(train_losses, test_losses):
 
 def output_algorithm(model):
     with torch.no_grad():
+        n, m, p, k = model.n, model.m, model.p, model.k
         C1, C2 = [param for param in model.parameters()]
         for t in range(2 * k):
             print(f'y_{t} = ', end='')
-            for ind in range(n ** 2):
-                print(f'{round(C1[t][ind].item(), 3)} * A_{ind // n}{ind % n} + ', end='')
-            for ind in range(n ** 2):
-                print(f'{round(C1[t][n ** 2 + ind].item(), 3)} * B_{ind // n}{ind % n} + ', end='')
+            for ind in range(n * m):
+                print(f'{round(C1[t][ind].item(), 3)} * A_{ind // m}{ind % m} + ', end='')
+            for ind in range(m * p):
+                print(f'{round(C1[t][n * m + ind].item(), 3)} * B_{ind // p}{ind % p} + ', end='')
             print('0')
         for t in range(k):
             print(f'z_{t} = y_{t} * y_{t + k}')
-        for ind in range(n ** 2):
-            print(f'C_{ind // n}{ind % n} = ', end='')
+        for ind in range(n * p):
+            print(f'C_{ind // p}{ind % p} = ', end='')
             for t in range(k):
                 print(f'{round(C2[ind][t].item(), 3)} * z_{t} + ', end='')
             print('0')
 
 
 n = int(sys.argv[1])
-X, Y = generate_matrices(n, 1024)
+m = int(sys.argv[2])
+p = int(sys.argv[3])
+k = int(sys.argv[4])
+lr = float(sys.argv[5])
+
+X, Y = gen_samples(n, m, p, 1024)
 X = X.reshape((len(X), -1)).float()
 Y = Y.reshape((len(Y), -1)).float()
 X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2)
 
-k = int(sys.argv[2])
 tol = 1e-4
 for t in range(1, 101):
-    model = MatmulModel(n, k).to(device)
-    optimizer = torch.optim.ASGD(model.parameters(), lr=1e-3)
+    model = MatmulModel(n, m, p, k).to(device)
+    optimizer = torch.optim.ASGD(model.parameters(), lr=lr)
     train_loader = DataLoader(TensorDataset(X_train, Y_train), batch_size=128, shuffle=True)
     test_loader = DataLoader(TensorDataset(X_test, Y_test), batch_size=128, shuffle=False)
     train_losses, test_losses = train_and_test(model, optimizer, nn.MSELoss(), train_loader, test_loader,
