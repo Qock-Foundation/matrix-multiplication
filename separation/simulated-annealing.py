@@ -54,27 +54,31 @@ def output_algorithm(model):
   with torch.no_grad():
     C1, C2 = model.parameters()
     for t in range(2 * k):
-      print(f'y_{t} = ', end='')
+      print(f'y_{t} =', end='')
       for ind in range(n ** 2):
-        print(f'{+ round(C1[t][ind].item(), 3)} * A_{ind // n}{ind % n}', end='')
+        print(f' + {round(C1[t][ind].item(), 3)} * A_{ind // n}{ind % n}', end='')
       for ind in range(n ** 2):
-        print(f'{+ round(C1[t][n ** 2 + ind].item(), 3)} * B_{ind // n}{ind % n}', end='')
+        print(f' + {round(C1[t][n ** 2 + ind].item(), 3)} * B_{ind // n}{ind % n}', end='')
     for t in range(k):
       print(f'z_{t} = y_{t} * y_{t + k}')
     for ind in range(n ** 2):
-      print(f'C_{ind // n}{ind % n} = ', end='')
+      print(f'C_{ind // n}{ind % n} =', end='')
       for t in range(k):
-        print(f'+ {round(C2[ind][t].item(), 3)} * z_{t}', end='')
+        print(f' + {round(C2[ind][t].item(), 3)} * z_{t}', end='')
+    print()
 
-def f(fixed):
-  frac = np.mean(Parallel(n_jobs=24)(delayed(attempt)(fixed) for i in range(24)))
-  return frac - 0.1 * np.sum(fixed == 57)
+def f_frac(fixed):   # maximize
+  return np.mean(Parallel(n_jobs=24)(delayed(attempt)(fixed) for i in range(24)))
+def f_nones(fixed):  # minimize
+  return np.sum(fixed == 57)
+def f(fixed):        # maximize
+  return f_frac(fixed) - 0.1 * f_nones(fixed)
 
 #assert f(np.random.randint(3, size=(m*n+n*p)*(2*k)+(m*p)*k) - 1) == 0
 #assert f(np.full(fill_value=57, shape=(m*n+n*p)*(2*k)+(m*p)*k)) == 1
 
 fixed = np.full((m * n + n * p) * (2 * k) + (m * p) * k, 57)
-for Temp in np.exp(np.linspace(np.log(1), np.log(0.01), 300)):
+for Temp in np.exp(np.linspace(np.log(1), np.log(0.01), 3000)):
   i_ch = np.random.randint((m * n + n * p) * (2 * k) + (m * p) * k)
   old_v = fixed[i_ch]
   old_value = f(fixed)
@@ -84,3 +88,4 @@ for Temp in np.exp(np.linspace(np.log(1), np.log(0.01), 300)):
   print(fixed, old_value, new_value, 'accept' if accept else 'reject')
   if not accept:
     fixed[i_ch] = old_v
+print('fixed:', fixed, 'frac', f_frac(fixed), 'nones', f_nones(fixed))
