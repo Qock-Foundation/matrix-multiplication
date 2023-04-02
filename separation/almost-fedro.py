@@ -39,17 +39,18 @@ def output_algorithm(model):
   with torch.no_grad():
     C1, C2 = model.parameters()
     for t in range(2 * k):
-      print(f'y_{t} = ', end='')
+      print(f'y_{t} =', end='')
       for ind in range(n ** 2):
-        print(f'{+ round(C1[t][ind].item(), 3)} * A_{ind // n}{ind % n}', end='')
+        print(f' + {round(C1[t][ind].item(), 3)} * A_{ind // n}{ind % n}', end='')
       for ind in range(n ** 2):
-        print(f'{+ round(C1[t][n ** 2 + ind].item(), 3)} * B_{ind // n}{ind % n}', end='')
+        print(f' + {round(C1[t][n ** 2 + ind].item(), 3)} * B_{ind // n}{ind % n}', end='')
     for t in range(k):
       print(f'z_{t} = y_{t} * y_{t + k}')
     for ind in range(n ** 2):
-      print(f'C_{ind // n}{ind % n} = ', end='')
+      print(f'C_{ind // n}{ind % n} =', end='')
       for t in range(k):
-        print(f'+ {round(C2[ind][t].item(), 3)} * z_{t}', end='')
+        print(f' + {round(C2[ind][t].item(), 3)} * z_{t}', end='')
+    print()
 
 n, k = 3, 23
 while True:
