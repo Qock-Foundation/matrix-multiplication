@@ -5,13 +5,13 @@ import torch, torch.nn as nn
 from joblib import Parallel, delayed
 
 device = 'cpu'
-n, k = 3, 23
+m, n, p, k = 1, 2, 2, 7
 
 class MatmulModel(nn.Module):
-  def __init__(self, n, k):
+  def __init__(self):
     super().__init__()
-    self.layer1 = nn.Linear(2 * n ** 2, 2 * k, bias=False)
-    self.layer3 = nn.Linear(k, n ** 2, bias=False)
+    self.layer1 = nn.Linear(m * n + n * p, 2 * k, bias=False)
+    self.layer3 = nn.Linear(k, m * p, bias=False)
   def forward(self, x):
     x = self.layer1(x)
     x = x[:, :k] * x[:, k:]
@@ -19,11 +19,11 @@ class MatmulModel(nn.Module):
     return x
 
 def attempt(fixed, num_iters=10000, batch_size=1024, tol=1e-4, alpha=0):
-  m1 = fixed[:4 * k * n ** 2].reshape(2 * k, 2 * n ** 2)
-  m2 = fixed[4 * k * n ** 2:].reshape(n ** 2, k)
+  m1 = fixed[:(m * n + n * p) * (2 * k)].reshape(2 * k, m * n + n * p)
+  m2 = fixed[(m * n + n * p) * (2 * k):].reshape(m * p, k)
   m1_mask = torch.BoolTensor(m1 != 57).to(device)
   m2_mask = torch.BoolTensor(m2 != 57).to(device)
-  model = MatmulModel(n, k).to(device)
+  model = MatmulModel().to(device)
   with torch.no_grad():
     model.layer1.weight[m1_mask] = torch.FloatTensor(m1).to(device)[m1_mask]
     model.layer3.weight[m2_mask] = torch.FloatTensor(m2).to(device)[m2_mask]
@@ -32,10 +32,10 @@ def attempt(fixed, num_iters=10000, batch_size=1024, tol=1e-4, alpha=0):
   criterion = nn.MSELoss()
   model.train()
   for iteration in range(1, num_iters + 1):
-    a = 3 * torch.randn(batch_size, n, n).to(device)
-    b = 3 * torch.randn(batch_size, n, n).to(device)
-    x = torch.cat((a.reshape(batch_size, n * n), b.reshape(batch_size, n * n)), 1)
-    y = (a @ b).reshape(batch_size, n * n)
+    a = 3 * torch.randn(batch_size, m, n).to(device)
+    b = 3 * torch.randn(batch_size, n, p).to(device)
+    x = torch.cat((a.reshape(batch_size, m * n), b.reshape(batch_size, n * p)), 1)
+    y = (a @ b).reshape(batch_size, m * p)
     z = model(x)
     loss = criterion(y, z)
     #for p in model.parameters():
@@ -68,11 +68,14 @@ def output_algorithm(model):
 
 def f(fixed):
   frac = np.mean(Parallel(n_jobs=24)(delayed(attempt)(fixed) for i in range(24)))
-  return frac
+  return frac - 0.1 * np.sum(fixed == 57)
 
-fixed = np.full(5 * k * n ** 2, 57)
-for Temp in np.exp(np.linspace(np.log(1), np.log(0.01))):
-  i_ch = np.random.randint(5 * k * n ** 2)
+#assert f(np.random.randint(3, size=(m*n+n*p)*(2*k)+(m*p)*k) - 1) == 0
+#assert f(np.full(fill_value=57, shape=(m*n+n*p)*(2*k)+(m*p)*k)) == 1
+
+fixed = np.full((m * n + n * p) * (2 * k) + (m * p) * k, 57)
+for Temp in np.exp(np.linspace(np.log(1), np.log(0.01), 300)):
+  i_ch = np.random.randint((m * n + n * p) * (2 * k) + (m * p) * k)
   old_v = fixed[i_ch]
   old_value = f(fixed)
   fixed[i_ch] = np.random.choice([57, 0, -1, +1])
