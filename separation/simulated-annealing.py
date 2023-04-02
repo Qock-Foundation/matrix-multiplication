@@ -5,7 +5,7 @@ import torch, torch.nn as nn
 from joblib import Parallel, delayed
 
 device = 'cpu'
-m, n, p, k = 1, 2, 2, 7
+m, n, p, k = 1, 2, 2, 4
 
 class MatmulModel(nn.Module):
   def __init__(self):
@@ -78,7 +78,7 @@ def f(fixed):        # maximize
 #assert f(np.full(fill_value=57, shape=(m*n+n*p)*(2*k)+(m*p)*k)) == 1
 
 fixed = np.full((m * n + n * p) * (2 * k) + (m * p) * k, 57)
-for Temp in np.exp(np.linspace(np.log(1), np.log(0.01), 3000)):
+for Temp in np.exp(np.linspace(np.log(1), np.log(0.01), 300)):
   i_ch = np.random.randint((m * n + n * p) * (2 * k) + (m * p) * k)
   old_v = fixed[i_ch]
   old_value = f(fixed)
