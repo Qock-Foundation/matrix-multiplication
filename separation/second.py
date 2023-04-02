@@ -1,0 +1,83 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+import torch, torch.nn as nn
+from joblib import Parallel, delayed
+
+device = 'cpu'
+n, k = 3, 23
+
+class MatmulModel(nn.Module):
+  def __init__(self, n, k):
+    super().__init__()
+    self.layer1 = nn.Linear(2 * n ** 2, 2 * k, bias=False)
+    self.layer3 = nn.Linear(k, n ** 2, bias=False)
+  def forward(self, x):
+    x = self.layer1(x)
+    x = x[:, :k] * x[:, k:]
+    x = self.layer3(x)
+    return x
+
+def attempt(fixed, num_iters=10000, batch_size=1024, tol=1e-4, alpha=0):
+  m1 = fixed[:4 * k * n ** 2].reshape(2 * k, 2 * n ** 2)
+  m2 = fixed[4 * k * n ** 2:].reshape(n ** 2, k)
+  m1_mask = torch.BoolTensor(m1 != 57).to(device)
+  m2_mask = torch.BoolTensor(m2 != 57).to(device)
+  model = MatmulModel(n, k).to(device)
+  with torch.no_grad():
+    model.layer1.weight[m1_mask] = torch.FloatTensor(m1).to(device)[m1_mask]
+    model.layer3.weight[m2_mask] = torch.FloatTensor(m2).to(device)[m2_mask]
+  optimizer = torch.optim.Adam(model.parameters(), lr=1e-1)
+  scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=(1-5/num_iters))
+  criterion = nn.MSELoss()
+  model.train()
+  for iteration in range(1, num_iters + 1):
+    a = 3 * torch.randn(batch_size, n, n).to(device)
+    b = 3 * torch.randn(batch_size, n, n).to(device)
+    x = torch.cat((a.reshape(batch_size, n * n), b.reshape(batch_size, n * n)), 1)
+    y = (a @ b).reshape(batch_size, n * n)
+    z = model(x)
+    loss = criterion(y, z)
+    #for p in model.parameters():
+    #  loss += alpha * ((p - torch.round(p)) ** 2).sum()
+    if loss < tol:
+      return True
+    optimizer.zero_grad()
+    loss.backward()
+    model.layer1.weight.grad[m1_mask] = 0
+    model.layer3.weight.grad[m2_mask] = 0
+    optimizer.step()
+    scheduler.step()
+  return False
+
+def output_algorithm(model):
+  with torch.no_grad():
+    C1, C2 = model.parameters()
+    for t in range(2 * k):
+      print(f'y_{t} = ', end='')
+      for ind in range(n ** 2):
+        print(f'{+ round(C1[t][ind].item(), 3)} * A_{ind // n}{ind % n}', end='')
+      for ind in range(n ** 2):
+        print(f'{+ round(C1[t][n ** 2 + ind].item(), 3)} * B_{ind // n}{ind % n}', end='')
+    for t in range(k):
+      print(f'z_{t} = y_{t} * y_{t + k}')
+    for ind in range(n ** 2):
+      print(f'C_{ind // n}{ind % n} = ', end='')
+      for t in range(k):
+        print(f'+ {round(C2[ind][t].item(), 3)} * z_{t}', end='')
+
+def f(fixed):
+  frac = np.mean(Parallel(n_jobs=24)(delayed(attempt)(fixed) for i in range(24)))
+  return frac
+
+fixed = np.full(5 * k * n ** 2, 57)
+for Temp in np.exp(np.linspace(np.log(1), np.log(0.01))):
+  i_ch = np.random.randint(5 * k * n ** 2)
+  old_v = fixed[i_ch]
+  old_value = f(fixed)
+  fixed[i_ch] = np.random.choice([57, 0, -1, +1])
+  new_value = f(fixed)
+  accept = new_value > old_value or np.random.random() < np.exp((new_value - old_value) / Temp)
+  print(fixed, old_value, new_value, 'accept' if accept else 'reject')
+  if not accept:
+    fixed[i_ch] = old_v
