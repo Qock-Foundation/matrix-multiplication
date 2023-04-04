@@ -17,28 +17,38 @@ class MatmulFedroModel(nn.Module):
     a, b = a.reshape(-1, m * n), b.reshape(-1, n * p)
     return self.layer3(self.layer11(a) * self.layer12(b))
 
-def attempt(fixed, num_iters=30000, batch_size=1024, tol=1e-3, alpha=0):
-  m11 = fixed[:m * n * k].reshape(k, m * n)
-  m12 = fixed[m * n * k:(m * n + n * p) * k].reshape(k, n * p)
-  m3 = fixed[(m * n + n * p) * k:].reshape(m * p, k)
-  m11_mask = torch.BoolTensor(m11 != 57).to(device)
-  m12_mask = torch.BoolTensor(m12 != 57).to(device)
-  m3_mask = torch.BoolTensor(m3 != 57).to(device)
+def attempt(fixed):
+  num_iters, batch_size, tol, alpha = 100000, 1024, 1e-3, 0
   model = MatmulFedroModel().to(device)
-  with torch.no_grad():
-    model.layer11.weight[m11_mask] = torch.FloatTensor(m11).to(device)[m11_mask]
-    model.layer12.weight[m12_mask] = torch.FloatTensor(m12).to(device)[m12_mask]
-    model.layer3.weight[m3_mask ] = torch.FloatTensor(m3).to(device)[m3_mask]
   optimizer = torch.optim.Adam(model.parameters(), lr=1e-1)
   scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=(1-5/num_iters))
   criterion = nn.MSELoss()
   model.train()
-  for iteration in range(1, num_iters + 1):
+  for iteration in range(0, num_iters + 1):
+    if iteration % 30 == 0:
+      frac_thr = iteration / (2 * num_iters)
+      print('frac_thr', frac_thr)
+      all_params = torch.cat([param.ravel() for param in model.parameters()]).cpu().detach().numpy()
+      fixed = np.full((m * n + n * p + p * m) * k, 57)
+      mask = np.abs(all_params - np.round(all_params)) < frac_thr
+      fixed[mask] = (all_params[mask] + 0.5).astype(int)
+      with torch.no_grad():
+        for param in model.parameters():
+          mask = torch.abs(param - torch.round(param)) < frac_thr
+          param[mask] = torch.round(param[mask])
+      m11 = fixed[:m * n * k].reshape(k, m * n)
+      m12 = fixed[m * n * k:(m * n + n * p) * k].reshape(k, n * p)
+      m3 = fixed[(m * n + n * p) * k:].reshape(m * p, k)
+      m11_mask = torch.BoolTensor(m11 != 57).to(device)
+      m12_mask = torch.BoolTensor(m12 != 57).to(device)
+      m3_mask = torch.BoolTensor(m3 != 57).to(device)
     a = torch.randn(batch_size, m, n).to(device)
     b = torch.randn(batch_size, n, p).to(device)
     y = (a @ b).reshape(batch_size, m * p)
     z = model(a, b)
     loss = criterion(y, z)
+    if iteration % 100 == 0:
+      print('loss', loss, 'params', torch.cat([param.ravel() for param in model.parameters()]).cpu().detach().tolist()[:8])
     #for p in model.parameters():
     #  loss += alpha * ((p - torch.round(p)) ** 2).sum()
     if loss < tol:
@@ -52,27 +62,14 @@ def attempt(fixed, num_iters=30000, batch_size=1024, tol=1e-3, alpha=0):
     scheduler.step()
   return False
 
-def output_algorithm(model):
-  with torch.no_grad():
-    C1, C2 = model.parameters()
-    for t in range(2 * k):
-      print(f'y_{t} =', end='')
-      for ind in range(n ** 2):
-        print(f' + {round(C1[t][ind].item(), 3)} * A_{ind // n}{ind % n}', end='')
-      for ind in range(n ** 2):
-        print(f' + {round(C1[t][n ** 2 + ind].item(), 3)} * B_{ind // n}{ind % n}', end='')
-    for t in range(k):
-      print(f'z_{t} = y_{t} * y_{t + k}')
-    for ind in range(n ** 2):
-      print(f'C_{ind // n}{ind % n} =', end='')
-      for t in range(k):
-        print(f' + {round(C2[ind][t].item(), 3)} * z_{t}', end='')
-    print()
-
 def f_frac(fixed):   # maximize
   return np.mean(Parallel(n_jobs=24)(delayed(attempt)(fixed) for i in range(24)))
 def f_nones(fixed):  # minimize
   return np.sum(fixed == 57)
+
+fixed = np.full((m * n + n * p + p * m) * k, 57)
+attempt(fixed)
+quit(0)
 
 #assert f(np.random.randint(3, size=(m*n+n*p)*(2*k)+(m*p)*k) - 1) == 0
 #assert f(np.full(fill_value=57, shape=(m*n+n*p)*(2*k)+(m*p)*k)) == 1
@@ -87,7 +84,7 @@ for Temp in np.exp(np.linspace(np.log(0.1), np.log(0.001), 3000)):
   fixed[i_ch] = np.random.choice([57, 0, -1, +1])
   v_frac, v_nones = f_frac(fixed), f_nones(fixed)
   new_value = v_frac - 0.01 * v_nones
-  accept = v_frac > 0 and (new_value > old_value or np.random.random() < np.exp((new_value - old_value) / Temp))
+  accept = new_value > old_value or np.random.random() < np.exp((new_value - old_value) / Temp)
   print(fixed, old_value, new_value, 'frac', v_frac, 'nones', v_nones, 'accept' if accept else 'reject')
   if not accept:
     fixed[i_ch] = old_v
