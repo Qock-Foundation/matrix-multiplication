@@ -87,7 +87,7 @@ for Temp in np.exp(np.linspace(np.log(0.1), np.log(0.001), 3000)):
   fixed[i_ch] = np.random.choice([57, 0, -1, +1])
   v_frac, v_nones = f_frac(fixed), f_nones(fixed)
   new_value = v_frac - 0.01 * v_nones
-  accept = v_frac > 0 and (new_value > old_value or np.random.random() < np.exp((new_value - old_value) / Temp))
+  accept = v_frac > 0.5 and (new_value > old_value or np.random.random() < np.exp((new_value - old_value) / Temp))
   print(fixed, old_value, new_value, 'frac', v_frac, 'nones', v_nones, 'accept' if accept else 'reject')
   if not accept:
     fixed[i_ch] = old_v
