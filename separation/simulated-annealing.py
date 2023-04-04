@@ -70,7 +70,7 @@ def output_algorithm(model):
     print()
 
 def f_frac(fixed):   # maximize
-  return np.mean(Parallel(n_jobs=24)(delayed(attempt)(fixed) for i in range(24)))
+  return np.mean(Parallel(n_jobs=4)(delayed(attempt)(fixed) for i in range(4)))
 def f_nones(fixed):  # minimize
   return np.sum(fixed == 57)
 
@@ -87,7 +87,7 @@ for Temp in np.exp(np.linspace(np.log(0.1), np.log(0.001), 3000)):
   fixed[i_ch] = np.random.choice([57, 0, -1, +1])
   v_frac, v_nones = f_frac(fixed), f_nones(fixed)
   new_value = v_frac - 0.01 * v_nones
-  accept = v_frac > 0.5 and (new_value > old_value or np.random.random() < np.exp((new_value - old_value) / Temp))
+  accept = v_frac >= 0.5 and (new_value > old_value or np.random.random() < np.exp((new_value - old_value) / Temp))
   print(fixed, old_value, new_value, 'frac', v_frac, 'nones', v_nones, 'accept' if accept else 'reject')
   if not accept:
     fixed[i_ch] = old_v
