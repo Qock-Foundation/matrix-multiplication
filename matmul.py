@@ -71,17 +71,17 @@ def attempt(model, optimizer, scheduler, criterion, num_batches, batch_size, tol
 
 
 def stringify_monom(c, sym):
-    if c == 0:
+    if abs(c) < 1e-2:
         return '0'
-    if c == 1:
+    if abs(c - 1) < 1e-2:
         return sym
-    if c == -1:
+    if abs(c + 1) < 1e-2:
         return '-' + sym
-    return str(round(c, 3)) + ' * ' + sym
+    return str(round(c, 2)) + ' * ' + sym
 
 
 def stringify_linear(cs, syms):
-    indices = torch.nonzero(cs != 0)
+    indices = torch.nonzero(torch.abs(cs) > 1e-2)
     return ' + '.join([stringify_monom(cs[i].item(), syms[i]) for i in indices])
 
 
@@ -119,7 +119,7 @@ def main(n, m, p, k, lr):
             num_params = len(torch.flatten(model.fixed1))
             num_fixed = sum(torch.flatten(model.fixed1))
             delta = model.round_distance(ind, d)
-            print(f'Progress: {num_fixed}/{num_params}, delta = {delta}, d = {d}', file=sys.stderr)
+            print(f'Rounding {num_fixed + 1}/{num_params}, delta = {delta}, d = {d}', file=sys.stderr)
             model_new = deepcopy(model)
             model_new.round_param(ind, d)
             optimizer = torch.optim.ASGD(model_new.parameters(), lr=lr)
