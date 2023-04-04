@@ -1,0 +1,4 @@
+python3.10 matmul.py 2 2 2 7 2e-4
+python3.10 matmul.py 2 2 3 10 2e-4
+python3.10 matmul.py 2 2 4 13 2e-4
+python3.10 matmul.py 2 2 5 16 2e-4
