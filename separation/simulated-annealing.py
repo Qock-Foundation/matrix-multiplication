@@ -5,28 +5,30 @@ import torch, torch.nn as nn
 from joblib import Parallel, delayed
 
 device = 'cpu'
-m, n, p, k = 1, 2, 2, 4
+m, n, p, k = 2, 2, 3, 10
 
-class MatmulModel(nn.Module):
+class MatmulFedroModel(nn.Module):
   def __init__(self):
     super().__init__()
-    self.layer1 = nn.Linear(m * n + n * p, 2 * k, bias=False)
+    self.layer11 = nn.Linear(m * n, k, bias=False)
+    self.layer12 = nn.Linear(n * p, k, bias=False)
     self.layer3 = nn.Linear(k, m * p, bias=False)
-  def forward(self, x):
-    x = self.layer1(x)
-    x = x[:, :k] * x[:, k:]
-    x = self.layer3(x)
-    return x
+  def forward(self, a, b):
+    a, b = a.reshape(-1, m * n), b.reshape(-1, n * p)
+    return self.layer3(self.layer11(a) * self.layer12(b))
 
 def attempt(fixed, num_iters=10000, batch_size=1024, tol=1e-4, alpha=0):
-  m1 = fixed[:(m * n + n * p) * (2 * k)].reshape(2 * k, m * n + n * p)
-  m2 = fixed[(m * n + n * p) * (2 * k):].reshape(m * p, k)
-  m1_mask = torch.BoolTensor(m1 != 57).to(device)
-  m2_mask = torch.BoolTensor(m2 != 57).to(device)
-  model = MatmulModel().to(device)
+  m11 = fixed[:m * n * k].reshape(k, m * n)
+  m12 = fixed[m * n * k:(m * n + n * p) * k].reshape(k, n * p)
+  m3 = fixed[(m * n + n * p) * k:].reshape(m * p, k)
+  m11_mask = torch.BoolTensor(m11 != 57).to(device)
+  m12_mask = torch.BoolTensor(m12 != 57).to(device)
+  m3_mask = torch.BoolTensor(m3 != 57).to(device)
+  model = MatmulFedroModel().to(device)
   with torch.no_grad():
-    model.layer1.weight[m1_mask] = torch.FloatTensor(m1).to(device)[m1_mask]
-    model.layer3.weight[m2_mask] = torch.FloatTensor(m2).to(device)[m2_mask]
+    model.layer11.weight[m11_mask] = torch.FloatTensor(m11).to(device)[m11_mask]
+    model.layer12.weight[m12_mask] = torch.FloatTensor(m12).to(device)[m12_mask]
+    model.layer3.weight[m3_mask ] = torch.FloatTensor(m3).to(device)[m3_mask]
   optimizer = torch.optim.Adam(model.parameters(), lr=1e-1)
   scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=(1-5/num_iters))
   criterion = nn.MSELoss()
@@ -34,9 +36,8 @@ def attempt(fixed, num_iters=10000, batch_size=1024, tol=1e-4, alpha=0):
   for iteration in range(1, num_iters + 1):
     a = 3 * torch.randn(batch_size, m, n).to(device)
     b = 3 * torch.randn(batch_size, n, p).to(device)
-    x = torch.cat((a.reshape(batch_size, m * n), b.reshape(batch_size, n * p)), 1)
     y = (a @ b).reshape(batch_size, m * p)
-    z = model(x)
+    z = model(a, b)
     loss = criterion(y, z)
     #for p in model.parameters():
     #  loss += alpha * ((p - torch.round(p)) ** 2).sum()
@@ -44,8 +45,9 @@ def attempt(fixed, num_iters=10000, batch_size=1024, tol=1e-4, alpha=0):
       return True
     optimizer.zero_grad()
     loss.backward()
-    model.layer1.weight.grad[m1_mask] = 0
-    model.layer3.weight.grad[m2_mask] = 0
+    model.layer11.weight.grad[m11_mask] = 0
+    model.layer12.weight.grad[m12_mask] = 0
+    model.layer3.weight.grad[m3_mask] = 0
     optimizer.step()
     scheduler.step()
   return False
@@ -72,14 +74,14 @@ def f_frac(fixed):   # maximize
 def f_nones(fixed):  # minimize
   return np.sum(fixed == 57)
 def f(fixed):        # maximize
-  return f_frac(fixed) - 0.1 * f_nones(fixed)
+  return f_frac(fixed) - 0.01 * f_nones(fixed)
 
 #assert f(np.random.randint(3, size=(m*n+n*p)*(2*k)+(m*p)*k) - 1) == 0
 #assert f(np.full(fill_value=57, shape=(m*n+n*p)*(2*k)+(m*p)*k)) == 1
 
-fixed = np.full((m * n + n * p) * (2 * k) + (m * p) * k, 57)
-for Temp in np.exp(np.linspace(np.log(1), np.log(0.01), 300)):
-  i_ch = np.random.randint((m * n + n * p) * (2 * k) + (m * p) * k)
+fixed = np.full((m * n + n * p + p * m) * k, 57)
+for Temp in np.exp(np.linspace(np.log(1), np.log(0.001), 1000)):
+  i_ch = np.random.randint((m * n + n * p + p * m) * k)
   old_v = fixed[i_ch]
   old_value = f(fixed)
   fixed[i_ch] = np.random.choice([57, 0, -1, +1])
