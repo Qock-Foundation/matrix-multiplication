@@ -218,6 +218,7 @@ def main(tp, n, m, p, r):
 
 
 if __name__ == '__main__':
+    torch.set_num_threads(1)
     main(tp=sys.argv[1],
          n=int(sys.argv[2]),
          m=int(sys.argv[3]),
