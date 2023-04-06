@@ -4,7 +4,8 @@ from copy import deepcopy
 from torch import nn
 from tqdm import trange
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+# device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = 'cpu'
 
 
 def loss_function(x, y):
