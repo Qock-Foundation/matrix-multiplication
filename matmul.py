@@ -143,8 +143,8 @@ def attempt(model, optimizer, scheduler, criterion, num_batches, batch_size, sca
     for _ in pbar:
         a = scale * torch.randn(batch_size, model.n, model.m)
         b = scale * torch.randn(batch_size, model.m, model.p)
-        x = torch.cat((a.reshape(batch_size, -1), b.reshape(batch_size, -1)), dim=1)
-        y = (a @ b).reshape(batch_size, -1)
+        x = torch.cat((a.reshape(batch_size, -1), b.reshape(batch_size, -1)), dim=1).to(device)
+        y = (a @ b).reshape(batch_size, -1).to(device)
         z = model(x)
         loss = criterion(y, z)
         pbar.set_postfix(loss=f'{loss.item():.6f}', refresh=False)
