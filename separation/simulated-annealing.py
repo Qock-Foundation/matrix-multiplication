@@ -5,6 +5,7 @@ import torch, torch.nn as nn
 from joblib import Parallel, delayed
 
 device = 'cpu'
+n_jobs = 1
 m, n, p, k = 2, 2, 5, 17
 
 class MatmulFedroModel(nn.Module):
@@ -39,9 +40,11 @@ def attempt(fixed, num_iters=30000, batch_size=1024, tol=1e-3, alpha=0):
     y = (a @ b).reshape(batch_size, m * p)
     z = model(a, b)
     loss = criterion(y, z)
+    print(loss.item())
     #for p in model.parameters():
     #  loss += alpha * ((p - torch.round(p)) ** 2).sum()
     if loss < tol:
+      output_algorithm(model)
       return True
     optimizer.zero_grad()
     loss.backward()
@@ -52,25 +55,39 @@ def attempt(fixed, num_iters=30000, batch_size=1024, tol=1e-3, alpha=0):
     scheduler.step()
   return False
 
+
+def stringify_monom(c, sym, eps=1e-2):
+  if abs(c) < eps:
+    return '0'
+  if abs(c - 1) < eps:
+    return sym
+  if abs(c + 1) < eps:
+    return '-' + sym
+  return str(round(c, 2)) + ' * ' + sym
+
+
+def stringify_linear(cs, syms, eps=1e-2):
+  mask = torch.nonzero(torch.abs(cs) > eps)
+  return ' + '.join([stringify_monom(cs[i].item(), syms[i], eps) for i in mask])
+
+
+@torch.no_grad()
 def output_algorithm(model):
-  with torch.no_grad():
-    C1, C2 = model.parameters()
-    for t in range(2 * k):
-      print(f'y_{t} =', end='')
-      for ind in range(n ** 2):
-        print(f' + {round(C1[t][ind].item(), 3)} * A_{ind // n}{ind % n}', end='')
-      for ind in range(n ** 2):
-        print(f' + {round(C1[t][n ** 2 + ind].item(), 3)} * B_{ind // n}{ind % n}', end='')
-    for t in range(k):
-      print(f'z_{t} = y_{t} * y_{t + k}')
-    for ind in range(n ** 2):
-      print(f'C_{ind // n}{ind % n} =', end='')
-      for t in range(k):
-        print(f' + {round(C2[ind][t].item(), 3)} * z_{t}', end='')
-    print()
+  syms = [f'A_{ind // n}{ind % n}' for ind in range(m * n)]
+  for t in range(k):
+    print(f'y_{t} = {stringify_linear(model.layer11.weight[t], syms)}')
+  syms = [f'B_{ind // p}{ind % p}' for ind in range(n * p)]
+  for t in range(k):
+    print(f'y_{t + k} = {stringify_linear(model.layer12.weight[t], syms)}')
+  for t in range(k):
+    print(f'z_{t} = y_{t} * y_{t + k}')
+  syms = [f'z_{t}' for t in range(k)]
+  for ind in range(m * p):
+    print(f'C_{ind // p}{ind % p} = {stringify_linear(model.layer3.weight[ind], syms)}')
+
 
 def f_frac(fixed):   # maximize
-  return np.mean(Parallel(n_jobs=4)(delayed(attempt)(fixed) for i in range(4)))
+  return np.mean(Parallel(n_jobs=n_jobs)(delayed(attempt)(fixed) for i in range(n_jobs)))
 def f_nones(fixed):  # minimize
   return np.sum(fixed == 57)
 
