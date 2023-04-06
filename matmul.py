@@ -40,7 +40,7 @@ class CommMatmulModel(nn.Module):
         self.n, self.m, self.p, self.r = n, m, p, r
         self.layer1 = nn.Linear(n * m + m * p, 2 * r, bias=False)
         self.layer2 = nn.Linear(r, n * p, bias=False)
-        self.fixed1 = torch.full_like(self.layer1.weight, torch.nan)
+        self.fixed1 = torch.full_like(self.layer1.weight, torch.nan).to(device)
 
     def forward(self, x):
         x = self.layer1(x)
@@ -87,8 +87,8 @@ class ClassicMatmulModel(nn.Module):
         self.layer11 = nn.Linear(n * m, r, bias=False)
         self.layer12 = nn.Linear(m * p, r, bias=False)
         self.layer2 = nn.Linear(r, n * p, bias=False)
-        self.fixed11 = torch.full_like(self.layer11.weight, torch.nan)
-        self.fixed12 = torch.full_like(self.layer12.weight, torch.nan)
+        self.fixed11 = torch.full_like(self.layer11.weight, torch.nan).to(device)
+        self.fixed12 = torch.full_like(self.layer12.weight, torch.nan).to(device)
 
     def forward(self, x):
         x1 = self.layer11(x[:, :self.n * self.m])
