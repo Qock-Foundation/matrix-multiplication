@@ -163,18 +163,20 @@ def attempt(model, optimizer, scheduler, criterion, num_batches, batch_size, sca
 
 def main(tp, n, m, p, r):
     model_class = CommMatmulModel if tp == 'comm' else ClassicMatmulModel
-    num_batches = 100000
+    num_batches = 200000
     num_batches2 = 100000
     batch_size = 1024
-    batch_size2 = 128
+    batch_size2 = 256
     gamma = 1 - 3 / num_batches
     gamma2 = 1 - 3 / num_batches2
-    lr = 1e-3
-    lr2 = 1e-3
+    lr = 1e-2
+    lr2 = 2e-3
     tol = 1e-2
     tol2 = 1e-12
     scale = 2
     denominators = [1, 2, 3, 4, 5, 6, 8, 9, 10, 12]
+
+    print('Approximation stage')
     while True:
         model = model_class(n, m, p, r).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -183,6 +185,8 @@ def main(tp, n, m, p, r):
                    num_batches=num_batches, batch_size=batch_size, scale=scale, tol=tol):
             break
     model.output()
+
+    print('Separation stage')
     for d in denominators:
         used = torch.zeros_like(model.get_params(), dtype=torch.bool)
         while True:
@@ -194,10 +198,10 @@ def main(tp, n, m, p, r):
                 num_fixed = sum(model.get_fixed())
                 old_value = model.get_params()[ind]
                 new_value = custom_round(old_value, d)
-                print(f'[{num_fixed + 1}/{num_params}] rounding {old_value} -> {new_value}')
+                print(f'[{num_fixed + 1}/{num_params}] separating {old_value} -> {new_value}')
                 model_new = deepcopy(model)
                 model_new.fix_param(ind, new_value)
-                optimizer = torch.optim.ASGD(model_new.parameters(), lr=lr2)
+                optimizer = torch.optim.Adam(model_new.parameters(), lr=lr2)
                 scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma2)
                 if attempt(model_new, optimizer, scheduler, loss_function,
                            num_batches=num_batches2, batch_size=batch_size2, scale=scale, tol=tol):
@@ -205,7 +209,8 @@ def main(tp, n, m, p, r):
                     break
             else:
                 break
-    print('Final optimization')
+
+    print('Refinement stage')
     model_final = deepcopy(model)
     optimizer = torch.optim.Adam(model_final.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma)
@@ -213,12 +218,11 @@ def main(tp, n, m, p, r):
                num_batches=num_batches, batch_size=batch_size, scale=scale, tol=tol2):
         model_final.output()
     else:
-        print('Failed to converge :(')
+        print('Failed to rationalize :(')
         model.output()
 
 
 if __name__ == '__main__':
-    torch.set_num_threads(1)
     main(tp=sys.argv[1],
          n=int(sys.argv[2]),
          m=int(sys.argv[3]),
