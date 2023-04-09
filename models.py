@@ -1,4 +1,3 @@
-import sys
 import torch
 from copy import deepcopy
 from torch import nn
@@ -49,6 +48,13 @@ class CommMatmulModel(nn.Module):
         x = self.layer2(x)
         return x
 
+    def gen_sample(self, batch_size, scale):
+        a = scale * torch.randn(batch_size, self.n, self.m)
+        b = scale * torch.randn(batch_size, self.m, self.p)
+        x = torch.cat((a.reshape(batch_size, -1), b.reshape(batch_size, -1)), dim=1).to(device)
+        y = (a @ b).reshape(batch_size, -1).to(device)
+        return x, y
+
     def get_params(self):
         return torch.flatten(self.layer1.weight)
 
@@ -97,6 +103,13 @@ class ClassicMatmulModel(nn.Module):
         x = self.layer2(x1 * x2)
         return x
 
+    def gen_sample(self, batch_size, scale):
+        a = scale * torch.randn(batch_size, self.n, self.m)
+        b = scale * torch.randn(batch_size, self.m, self.p)
+        x = torch.cat((a.reshape(batch_size, -1), b.reshape(batch_size, -1)), dim=1).to(device)
+        y = (a @ b).reshape(batch_size, -1).to(device)
+        return x, y
+
     def get_params(self):
         return torch.cat((torch.flatten(self.layer11.weight), torch.flatten(self.layer12.weight)))
 
@@ -138,14 +151,61 @@ class ClassicMatmulModel(nn.Module):
             print(f'C_{ind // self.p}{ind % self.p} = {stringify_linear(self.layer2.weight[ind], syms)}')
 
 
+class TransposeMatmulModel(nn.Module):
+    def __init__(self, n, m, r):
+        super().__init__()
+        self.n, self.m, self.r = n, m, r
+        self.layer1 = nn.Linear(n * m, 2 * r, bias=False)
+        self.layer2 = nn.Linear(r, n * n, bias=False)
+        self.fixed1 = torch.full_like(self.layer1.weight, torch.nan).to(device)
+
+    def forward(self, x):
+        x = self.layer1(x)
+        x = x[:, :self.r] * x[:, self.r:]
+        x = self.layer2(x)
+        return x
+
+    def gen_sample(self, batch_size, scale):
+        a = scale * torch.randn(batch_size, self.n, self.m)
+        x = a.reshape(batch_size, -1).to(device)
+        y = (a @ a.transpose(1, 2)).reshape(batch_size, -1).to(device)
+        return x, y
+
+    def get_params(self):
+        return torch.flatten(self.layer1.weight)
+
+    def get_fixed(self):
+        return ~torch.flatten(self.fixed1).isnan()
+
+    @torch.no_grad()
+    def fix_param(self, ind, value):
+        m = self.layer1.weight.shape[1]
+        i, j = ind // m, ind % m
+        self.layer1.weight[i][j] = value
+        self.fixed1[i][j] = value
+
+    @torch.no_grad()
+    def reset_fixed(self):
+        mask1 = ~self.fixed1.isnan()
+        self.layer1.weight[mask1] = self.fixed1[mask1]
+
+    @torch.no_grad()
+    def output(self):
+        syms = [f'A_{ind // self.m}{ind % self.m}' for ind in range(self.n * self.m)]
+        for t in range(2 * self.r):
+            print(f'y_{t} = {stringify_linear(self.layer1.weight[t], syms)}')
+        for t in range(self.r):
+            print(f'z_{t} = y_{t} * y_{t + self.r}')
+        syms = [f'z_{t}' for t in range(self.r)]
+        for ind in range(self.n * self.n):
+            print(f'C_{ind // self.n}{ind % self.n} = {stringify_linear(self.layer2.weight[ind], syms)}')
+
+
 def attempt(model, optimizer, scheduler, criterion, num_batches, batch_size, scale, tol):
     model.train()
     pbar = trange(num_batches, unit='batches')
     for _ in pbar:
-        a = scale * torch.randn(batch_size, model.n, model.m)
-        b = scale * torch.randn(batch_size, model.m, model.p)
-        x = torch.cat((a.reshape(batch_size, -1), b.reshape(batch_size, -1)), dim=1).to(device)
-        y = (a @ b).reshape(batch_size, -1).to(device)
+        x, y = model.gen_sample(batch_size, scale)
         z = model(x)
         loss = criterion(y, z)
         pbar.set_postfix(loss=f'{loss.item():.6f}', refresh=False)
@@ -161,28 +221,27 @@ def attempt(model, optimizer, scheduler, criterion, num_batches, batch_size, sca
     return False
 
 
-def main(tp, n, m, p, r):
-    model_class = CommMatmulModel if tp == 'comm' else ClassicMatmulModel
-    num_batches = 200000
-    num_batches2 = 100000
-    batch_size = 1024
+def solve(model_creator):
+    num_batches1 = 400000
+    num_batches2 = 300000
+    batch_size1 = 1024
     batch_size2 = 256
-    gamma = 1 - 3 / num_batches
-    gamma2 = 1 - 3 / num_batches2
-    lr = 1e-2
-    lr2 = 2e-3
-    tol = 1e-2
-    tol2 = 1e-12
+    gamma = 1 - 3 / num_batches1
+    lr1 = 1e-3
+    lr2 = 2e-4
+    lr3 = 1e-6
+    tol1 = 1e-2
+    tol3 = 1e-6
     scale = 2
     denominators = [1, 2, 3, 4, 5, 6, 8, 9, 10, 12]
 
     print('Approximation stage')
     while True:
-        model = model_class(n, m, p, r).to(device)
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        model = model_creator().to(device)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr1)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma)
         if attempt(model, optimizer, scheduler, loss_function,
-                   num_batches=num_batches, batch_size=batch_size, scale=scale, tol=tol):
+                   num_batches=num_batches1, batch_size=batch_size1, scale=scale, tol=tol1):
             break
     model.output()
 
@@ -202,9 +261,9 @@ def main(tp, n, m, p, r):
                 model_new = deepcopy(model)
                 model_new.fix_param(ind, new_value)
                 optimizer = torch.optim.Adam(model_new.parameters(), lr=lr2)
-                scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma2)
+                scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma)
                 if attempt(model_new, optimizer, scheduler, loss_function,
-                           num_batches=num_batches2, batch_size=batch_size2, scale=scale, tol=tol):
+                           num_batches=num_batches2, batch_size=batch_size2, scale=scale, tol=tol1):
                     model = model_new
                     break
             else:
@@ -212,19 +271,11 @@ def main(tp, n, m, p, r):
 
     print('Refinement stage')
     model_final = deepcopy(model)
-    optimizer = torch.optim.Adam(model_final.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(model_final.parameters(), lr=lr3)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma)
-    if attempt(model_final, optimizer, scheduler, nn.MSELoss(),
-               num_batches=num_batches, batch_size=batch_size, scale=scale, tol=tol2):
+    if attempt(model_final, optimizer, scheduler, loss_function,
+               num_batches=num_batches1, batch_size=batch_size1, scale=scale, tol=tol3):
         model_final.output()
     else:
         print('Failed to rationalize :(')
         model.output()
-
-
-if __name__ == '__main__':
-    main(tp=sys.argv[1],
-         n=int(sys.argv[2]),
-         m=int(sys.argv[3]),
-         p=int(sys.argv[4]),
-         r=int(sys.argv[5]))
