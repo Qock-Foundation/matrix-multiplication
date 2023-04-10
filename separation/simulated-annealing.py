@@ -5,8 +5,8 @@ import torch, torch.nn as nn
 from joblib import Parallel, delayed
 
 device = 'cpu'
-n_jobs = 1
-m, n, p, k = 2, 2, 5, 17
+n_jobs = 8
+m, n, p, k = 3, 3, 3, 23
 
 class MatmulFedroModel(nn.Module):
   def __init__(self):
@@ -19,6 +19,7 @@ class MatmulFedroModel(nn.Module):
     return self.layer3(self.layer11(a) * self.layer12(b))
 
 def attempt(fixed, num_iters=30000, batch_size=1024, tol=1e-3, alpha=0):
+  torch.set_num_threads(1)
   m11 = fixed[:m * n * k].reshape(k, m * n)
   m12 = fixed[m * n * k:(m * n + n * p) * k].reshape(k, n * p)
   m3 = fixed[(m * n + n * p) * k:].reshape(m * p, k)
@@ -40,11 +41,10 @@ def attempt(fixed, num_iters=30000, batch_size=1024, tol=1e-3, alpha=0):
     y = (a @ b).reshape(batch_size, m * p)
     z = model(a, b)
     loss = criterion(y, z)
-    print(loss.item())
     #for p in model.parameters():
     #  loss += alpha * ((p - torch.round(p)) ** 2).sum()
     if loss < tol:
-      output_algorithm(model)
+      #output_algorithm(model)
       return True
     optimizer.zero_grad()
     loss.backward()
