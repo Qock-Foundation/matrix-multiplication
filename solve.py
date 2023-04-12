@@ -36,23 +36,23 @@ def attempt(model, fixed, optimizer, scheduler, num_batches, batch_size, scale, 
 
 def solve(model_creator,
           num_batches1=400000,
-          num_batches2=300000,
-          num_batches3=500000,
+          num_batches2=400000,
+          num_batches3=400000,
           batch_size1=1024,
           batch_size2=256,
           batch_size3=1024,
           gamma=1 - 5 / 400000,
           scale=2,
-          lr1=1e-3,
-          lr2=2e-4,
+          lr1=1e-2,
+          lr2=1e-4,
           lr3=1e-6,
           tol=1e-2,
           tol3=1e-6,
           denominators=(1, 2, 3, 4, 5, 6, 8, 9, 10, 12)):
     print('Approximation stage')
     fixed = []
-    for params in model_creator().parameters():
-        fixed.append(torch.full_like(params, torch.nan))
+    for arr in model_creator().parameters():
+        fixed.append(torch.full_like(arr, torch.nan))
     while True:
         model = model_creator()
         optimizer = torch.optim.Adam(model.parameters(), lr=lr1)
@@ -63,16 +63,16 @@ def solve(model_creator,
     print(model)
 
     print('Separation stage')
+    indices = []
+    for i, arr in enumerate(model.parameters()):
+        prod = list(product(range(arr.shape[0]), range(arr.shape[1])))
+        indices += zip([i] * len(prod), prod)
     for d in denominators:
         used = list(map(lambda arr: torch.zeros_like(arr, dtype=torch.bool), fixed[:-1]))
         while True:
             params = list(model.parameters())
             params_flat = torch.cat(list(map(torch.flatten, params[:-1])))
             fixed_flat = torch.cat(list(map(torch.flatten, fixed[:-1])))
-            indices = []
-            for i, arr in enumerate(params[:-1]):
-                prod = list(product(range(arr.shape[0]), range(arr.shape[1])))
-                indices += zip([i] * len(prod), prod)
             dist = torch.abs(params_flat - custom_round(params_flat, d))
             num_params = len(params_flat)
             num_fixed = sum(~fixed_flat.isnan())
