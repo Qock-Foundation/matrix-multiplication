@@ -37,7 +37,8 @@ class TransposeMatmulModel(nn.Module):
         return x, y
 
 
-n = int(sys.argv[1])
-m = int(sys.argv[2])
-r = int(sys.argv[3])
-solve(lambda: TransposeMatmulModel(n, m, r))
+if __name__ == '__main__':
+    n = int(sys.argv[1])
+    m = int(sys.argv[2])
+    r = int(sys.argv[3])
+    solve(TransposeMatmulModel, (n, m, r))

@@ -1,7 +1,9 @@
 import torch
+import signal
 from copy import deepcopy
 from itertools import product
-from tqdm import trange
+from tqdm import tqdm
+from multiprocessing import Process, Queue, RLock
 
 
 def loss_function(x, y):
@@ -12,14 +14,18 @@ def custom_round(x, d):
     return torch.round(x * d) / d
 
 
-def attempt(model, fixed, optimizer, scheduler, num_batches, batch_size, scale, tol):
+def attempt(model, fixed, optimizer, scheduler, num_batches, batch_size, scale, tol, lock=RLock(), pid=0):
+    signal.signal(signal.SIGTERM, lambda *args: exit(0))
     model.train()
-    pbar = trange(num_batches, unit='batches')
-    for _ in pbar:
+    with lock:
+        pbar = tqdm(total=num_batches, unit='batches', position=pid)
+    for _ in range(num_batches):
         x, y = model.sample(batch_size, scale)
         z = model(x)
         loss = loss_function(y, z)
-        pbar.set_postfix(loss=f'{loss.item():.6f}', refresh=False)
+        with lock:
+            pbar.set_postfix(loss=f'{loss.item():.6f}', refresh=False)
+            pbar.update()
         if loss.isnan():
             return False
         if loss < tol:
@@ -32,34 +38,57 @@ def attempt(model, fixed, optimizer, scheduler, num_batches, batch_size, scale, 
             for i, arr in enumerate(model.parameters()):
                 mask = ~fixed[i].isnan()
                 arr[mask] = fixed[i][mask]
+    return False
 
 
-def solve(model_creator,
+def attempt_callback(model_class, model_args, fixed, lr, lr_decay, num_batches, batch_size, scale, tol, lock, pid, q):
+    torch.set_num_threads(1)
+    model = model_class(*model_args)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=lr_decay,
+                                                  total_iters=num_batches)
+    success = attempt(model, fixed, optimizer, scheduler, num_batches, batch_size, scale, tol, lock, pid)
+    q.put(model if success else None)
+
+
+def solve(model_class,
+          model_args,
+          num_processes=4,
           num_batches1=400000,
           num_batches2=400000,
           num_batches3=400000,
           batch_size1=1024,
           batch_size2=256,
           batch_size3=1024,
-          gamma=1 - 5 / 400000,
-          scale=2,
-          lr1=1e-2,
-          lr2=1e-4,
-          lr3=1e-6,
+          scale=3,
+          lr_decay=1e-1,
+          lr1=1e-3,
+          lr2=2e-4,
+          lr3=1e-7,
           tol=1e-2,
-          tol3=1e-6,
+          tol3=2e-6,
           denominators=(1, 2, 3, 4, 5, 6, 8, 9, 10, 12)):
     print('Approximation stage')
     fixed = []
-    for arr in model_creator().parameters():
+    for arr in model_class(*model_args).parameters():
         fixed.append(torch.full_like(arr, torch.nan))
-    while True:
-        model = model_creator()
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr1)
-        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma)
-        if attempt(model, fixed, optimizer, scheduler,
-                   num_batches=num_batches1, batch_size=batch_size1, scale=scale, tol=tol):
-            break
+    model = None
+    while not model:
+        lock = RLock()
+        results = Queue()
+        processes = []
+        for pid in range(num_processes):
+            process = Process(target=attempt_callback,
+                              args=(model_class, model_args, fixed, lr1, lr_decay,
+                                    num_batches1, batch_size1, scale, tol, lock, pid, results))
+            process.start()
+            processes.append(process)
+        for _ in range(num_processes):
+            model = results.get()
+            if model:
+                for process in processes:
+                    process.terminate()
+                break
     print(model)
 
     print('Separation stage')
@@ -91,7 +120,8 @@ def solve(model_creator,
                     params_new[i][loc] = new_value
                     fixed_new[i][loc] = new_value
                 optimizer = torch.optim.Adam(model_new.parameters(), lr=lr2)
-                scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma)
+                scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=lr_decay,
+                                                              total_iters=num_batches2)
                 if attempt(model_new, fixed_new, optimizer, scheduler,
                            num_batches=num_batches2, batch_size=batch_size2, scale=scale, tol=tol):
                     model = model_new
@@ -103,7 +133,8 @@ def solve(model_creator,
 
     print('Refinement stage')
     optimizer = torch.optim.Adam(model.parameters(), lr=lr3)
-    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma)
+    scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=lr_decay,
+                                                  total_iters=num_batches3)
     attempt(model, fixed, optimizer, scheduler,
             num_batches=num_batches3, batch_size=batch_size3, scale=scale, tol=tol3)
     print(model)

@@ -40,8 +40,9 @@ class CommutativeMatmulModel(nn.Module):
         return x, y
 
 
-n = int(sys.argv[1])
-m = int(sys.argv[2])
-p = int(sys.argv[3])
-r = int(sys.argv[4])
-solve(lambda: CommutativeMatmulModel(n, m, p, r))
+if __name__ == '__main__':
+    n = int(sys.argv[1])
+    m = int(sys.argv[2])
+    p = int(sys.argv[3])
+    r = int(sys.argv[4])
+    solve(CommutativeMatmulModel, (n, m, p, r))
