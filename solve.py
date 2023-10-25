@@ -23,8 +23,9 @@ def attempt(model, fixed, optimizer, scheduler, num_batches, batch_size, scale, 
         x, y = model.sample(batch_size, scale)
         z = model(x)
         loss = loss_function(y, z)
+        mx = max([torch.max(torch.abs(arr)) for arr in model.parameters()])
         with lock:
-            pbar.set_postfix(loss=f'{loss.item():.6f}', refresh=False)
+            pbar.set_postfix(mx=f'{mx:.2f}', loss=f'{loss.item():.6f}', refresh=False)
             pbar.update()
         if loss.isnan():
             return False
