@@ -94,9 +94,9 @@ def solve(model_class,
         for _ in range(num_processes):
             model = results.get()
             if model:
-                for process in processes:
-                    process.terminate()
                 break
+        for process in processes:
+            process.terminate()
     print(model)
 
     print('Separation stage')
