@@ -4,6 +4,7 @@ from copy import deepcopy
 from itertools import product
 from tqdm import tqdm
 from multiprocessing import Process, Queue, RLock
+from time import time
 
 
 def loss_function(x, y):
@@ -42,10 +43,12 @@ def attempt(model, fixed, optimizer, scheduler, num_batches, batch_size, scale, 
     return False
 
 
-def attempt_callback(model_class, model_args, fixed, lr, lr_decay, num_batches, batch_size, scale, tol, lock, pid, q):
+def attempt_callback(model_class, model_args, fixed, lr, lr_decay, weight_decay,
+                     num_batches, batch_size, scale, tol, lock, pid, seed, q):
     torch.set_num_threads(1)
+    torch.manual_seed(seed)
     model = model_class(*model_args)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=lr_decay,
                                                   total_iters=num_batches)
     success = attempt(model, fixed, optimizer, scheduler, num_batches, batch_size, scale, tol, lock, pid)
@@ -61,8 +64,9 @@ def solve(model_class,
           batch_size1=1024,
           batch_size2=256,
           batch_size3=1024,
-          scale=3,
-          lr_decay=1e-1,
+          scale=1,
+          weight_decay=1e-3,
+          lr_decay=1e-3,
           lr1=1e-3,
           lr2=2e-4,
           lr3=1e-7,
@@ -74,16 +78,18 @@ def solve(model_class,
     for arr in model_class(*model_args).parameters():
         fixed.append(torch.full_like(arr, torch.nan))
     model = None
+    seed = time()
     while not model:
         lock = RLock()
         results = Queue()
         processes = []
         for pid in range(num_processes):
             process = Process(target=attempt_callback,
-                              args=(model_class, model_args, fixed, lr1, lr_decay,
-                                    num_batches1, batch_size1, scale, tol, lock, pid, results))
+                              args=(model_class, model_args, fixed, lr1, lr_decay, weight_decay,
+                                    num_batches1, batch_size1, scale, tol, lock, pid, seed, results))
             process.start()
             processes.append(process)
+            seed += 1
         for _ in range(num_processes):
             model = results.get()
             if model:
@@ -120,7 +126,7 @@ def solve(model_class,
                 with torch.no_grad():
                     params_new[i][loc] = new_value
                     fixed_new[i][loc] = new_value
-                optimizer = torch.optim.Adam(model_new.parameters(), lr=lr2)
+                optimizer = torch.optim.Adam(model_new.parameters(), lr=lr2, weight_decay=weight_decay)
                 scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=lr_decay,
                                                               total_iters=num_batches2)
                 if attempt(model_new, fixed_new, optimizer, scheduler,
