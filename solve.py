@@ -53,6 +53,7 @@ def attempt_callback(model_class, model_args, fixed, lr, lr_decay, weight_decay,
                                                   total_iters=num_batches)
     success = attempt(model, fixed, optimizer, scheduler, num_batches, batch_size, scale, tol, lock, pid)
     q.put(model if success else None)
+    signal.pause()
 
 
 def solve(model_class,
