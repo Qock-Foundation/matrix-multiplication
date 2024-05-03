@@ -55,7 +55,7 @@ def try_round(params, target, fixed, used, loss_func, num_iter, lr, lr_decay, ep
             min_delta = delta
             min_ind = ind
             min_param_id = param_id
-    min_indices = torch.unravel_index(min_ind, params[min_param_id].shape)
+    min_indices = np.unravel_index(min_ind, params[min_param_id].shape)
     used[min_param_id][min_indices] = True
     cnt_params = sum([np.prod(p.shape) for p in params])
     cnt_fixed = sum([(~f.isnan()).sum().item() for f in fixed])
