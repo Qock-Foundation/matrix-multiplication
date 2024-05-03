@@ -54,7 +54,7 @@ def attempt(A, params, fixed, num_iter, lr, lr_decay, eps, tol, debug):
     A3 = A.reshape((-1, A.shape[2]))
     optimizer = torch.optim.Adam([params], lr=lr, weight_decay=eps)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=lr_decay)
-    pbar = tqdm(total=num_iter, unit='batches') if debug else None
+    pbar = tqdm(total=num_iter, unit='batches', leave=False) if debug else None
     for _ in range(num_iter):
         U, V = torch.split(params, A.shape[:2])
         W = last_factor(A3, U, V, eps)
@@ -101,7 +101,7 @@ def try_round(params, target, fixed, used, num_iter, lr, lr_decay, eps, tol, deb
     cnt_params = params.shape[0] * params.shape[1]
     cnt_fixed = (~fixed.isnan()).sum().item()
     if debug:
-        print(f'[{cnt_fixed + 1}/{cnt_params}] separating {params[i][j]} -> {target[i][j]}',
+        print(f'[{cnt_fixed + 1}/{cnt_params}] separating {params[i][j]} -> {target[i][j]}       ',
               file=sys.stderr)
     params_new = deepcopy(params)
     fixed_new = deepcopy(fixed)
@@ -109,6 +109,9 @@ def try_round(params, target, fixed, used, num_iter, lr, lr_decay, eps, tol, deb
         params_new[i][j] = target[i][j]
         fixed_new[i][j] = target[i][j]
     success = attempt(A, params_new, fixed_new, num_iter, lr, lr_decay, eps, tol, debug)
+    if debug:
+        print('\033[F', end='', file=sys.stderr)
+        sys.stderr.flush()
     if success:
         with torch.no_grad():
             params[:] = params_new
