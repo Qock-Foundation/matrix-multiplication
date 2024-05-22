@@ -30,6 +30,8 @@ def attempt(params, fixed, loss_func, num_iter, lr, lr_decay, eps, tol, debug):
         if debug:
             pbar.set_postfix(loss=f'{loss.item():.6f}', mx=f'{mx:.2f}')
             pbar.update()
+        if loss.isnan() or loss.isinf():
+            return False
         if loss < tol:
             return True
         optimizer.zero_grad()
@@ -97,6 +99,8 @@ def rationalize(params, loss_func, num_iter, lr, lr_decay, eps, tol, denominator
         while any([(fixed[param_id].isnan() & ~used[param_id]).any() for param_id in range(len(params))]):
             target = [custom_round(p, d) for p in params]
             try_round(params, target, fixed, used, loss_func, num_iter, lr, lr_decay, eps, tol, debug)
+    if debug:
+        print('', file=sys.stderr)
     if any([f.isnan().any() for f in fixed]):
         return False
     return True
